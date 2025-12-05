@@ -77,14 +77,17 @@ func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
 
 	wg.Wait()
 
-	if flagErr != nil {
-		return nil, flagErr
-	}
+if flagErr != nil {
+    return nil, flagErr
+}
+if ruleErr != nil {
+    return nil, ruleErr
+}
 
-	return &CombinedFlagInfo{
-		Flag: flagInfo,
-		Rule: ruleInfo,
-	}, nil
+return &CombinedFlagInfo{
+    Flag: flagInfo,
+    Rule: ruleInfo,
+}, nil
 }
 
 func (a *App) fetchFlag(flagName string) (*Flag, error) {
