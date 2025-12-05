@@ -1,17 +1,17 @@
 package main
 
 import (
-	"context"
-	"crypto/sha1"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
-	"sync"
-	"time"
+	"os"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/sqs"
 )
+
 
 const (
 	// Tempo de vida do cache em segundos
