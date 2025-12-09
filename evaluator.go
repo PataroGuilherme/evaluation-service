@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 )
@@ -18,8 +19,10 @@ const (
 	CACHE_TTL = 30 * time.Second
 )
 
-// getDecision é o wrapper principal
-func (a *App) getDecision(userID, flagName string) (bool, error) {
+// EvaluateUserFlag é o método público que handlers.go espera encontrar.
+// Ele chama internamente a lógica de decisão e mantém a mesma assinatura
+// utilizada anteriormente (retorna bool, error).
+func (a *App) EvaluateUserFlag(userID, flagName string) (bool, error) {
 	// 1. Obter os dados da flag (do cache ou dos serviços)
 	info, err := a.getCombinedFlagInfo(flagName)
 	if err != nil {
@@ -34,6 +37,9 @@ func (a *App) getDecision(userID, flagName string) (bool, error) {
 func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 	cacheKey := fmt.Sprintf("flag_info:%s", flagName)
 
+	// Cria um contexto para operações com Redis
+	ctx := context.Background()
+
 	// 1. Tentar buscar do Cache (Redis)
 	val, err := a.RedisClient.Get(ctx, cacheKey).Result()
 	if err == nil {
@@ -46,7 +52,7 @@ func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 		// Se o unmarshal falhar, trata como cache miss
 		log.Printf("Erro ao desserializar cache para flag '%s': %v", flagName, err)
 	}
-	
+
 	log.Printf("Cache MISS para flag '%s'", flagName)
 	// 2. Cache MISS - Buscar dos serviços
 	info, err := a.fetchFromServices(flagName)
@@ -57,7 +63,8 @@ func (a *App) getCombinedFlagInfo(flagName string) (*CombinedFlagInfo, error) {
 	// 3. Salvar no Cache
 	jsonData, err := json.Marshal(info)
 	if err == nil {
-		a.RedisClient.Set(ctx, cacheKey, jsonData, CACHE_TTL).Err()
+		// ignora erro de set (não é fatal)
+		_ = a.RedisClient.Set(ctx, cacheKey, jsonData, CACHE_TTL).Err()
 	}
 
 	return info, nil
@@ -90,7 +97,8 @@ func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
 		return nil, flagErr
 	}
 	if ruleErr != nil {
-		log.Printf("Aviso: Nenhuma regra de segmentação encontrada para '%s'. Usando padrão.", flagName)
+		// Não é fatal — apenas log e prossegue (usa padrão)
+		log.Printf("Aviso: Nenhuma regra de segmentação encontrada para '%s'. Usando padrão. (detalhe: %v)", flagName, ruleErr)
 	}
 
 	return &CombinedFlagInfo{
@@ -103,10 +111,11 @@ func (a *App) fetchFromServices(flagName string) (*CombinedFlagInfo, error) {
 func (a *App) fetchFlag(flagName string) (*Flag, error) {
 	url := fmt.Sprintf("%s/flags/%s", a.FlagServiceURL, flagName)
 
+	// A chave é lida do ambiente — lembrando que você já colocou SERVICE_API_KEY no container.
 	apiKey := os.Getenv("SERVICE_API_KEY")
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	
+
 	resp, err := a.HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao chamar flag-service: %w", err)
@@ -133,7 +142,7 @@ func (a *App) fetchRule(flagName string) (*TargetingRule, error) {
 	apiKey := os.Getenv("SERVICE_API_KEY") // Usa a mesma chave
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	
+
 	resp, err := a.HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao chamar targeting-service: %w", err)
@@ -174,10 +183,10 @@ func (a *App) runEvaluationLogic(info *CombinedFlagInfo, userID string) bool {
 			log.Printf("Erro: valor da regra de porcentagem não é um número para a flag '%s'", info.Flag.Name)
 			return false
 		}
-		
+
 		// Calcula o "bucket" do usuário (0-99)
 		userBucket := getDeterministicBucket(userID + info.Flag.Name)
-		
+
 		if float64(userBucket) < percentage {
 			return true
 		}
@@ -191,10 +200,10 @@ func getDeterministicBucket(input string) int {
 	hasher := sha1.New()
 	hasher.Write([]byte(input))
 	hash := hasher.Sum(nil)
-	
+
 	// Converte 4 bytes para um uint32
 	val := binary.BigEndian.Uint32(hash[:4])
-	
+
 	// Retorna o módulo 100
 	return int(val % 100)
 }

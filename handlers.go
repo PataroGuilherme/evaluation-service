@@ -6,53 +6,39 @@ import (
 	"net/http"
 )
 
-type EvaluationResponse struct {
-	FlagName string `json:"flag_name"`
-	UserID   string `json:"user_id"`
-	Result   bool   `json:"result"`
-}
-
+// healthHandler retorna um status básico de saúde do serviço.
 func (a *App) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	w.Write([]byte("OK"))
 }
 
+// evaluationHandler é o handler público chamado em /evaluate.
+// Ele chama EvaluateUserFlag, que é o método correto definido em evaluator.go.
 func (a *App) evaluationHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// 1. Parsear os query parameters
 	userID := r.URL.Query().Get("user_id")
 	flagName := r.URL.Query().Get("flag_name")
 
 	if userID == "" || flagName == "" {
-		http.Error(w, `{"error": "user_id e flag_name são obrigatórios"}`, http.StatusBadRequest)
+		http.Error(w, "Parâmetros obrigatórios: user_id, flag_name", http.StatusBadRequest)
 		return
 	}
 
-	// 2. Obter a decisão (lógica de cache/serviço está em evaluator.go)
-	result, err := a.getDecision(userID, flagName)
+	log.Printf("Recebida solicitação de avaliação: user_id=%s, flag=%s", userID, flagName)
+
+	// CHAMADA CORRETA:
+	result, err := a.EvaluateUserFlag(userID, flagName)
 	if err != nil {
-		// Se o erro for "não encontrado", retornamos 'false' (comportamento seguro)
-		if _, ok := err.(*NotFoundError); ok {
-			result = false
-		} else {
-			// Outros erros (serviços offline, etc)
-			log.Printf("Erro ao avaliar flag '%s': %v", flagName, err)
-			http.Error(w, `{"error": "Erro interno ao avaliar a flag"}`, http.StatusBadGateway)
-			return
-		}
+		log.Printf("Erro ao avaliar flag '%s': %v", flagName, err)
+		http.Error(w, `{"error":"Erro interno ao avaliar a flag"}`, http.StatusInternalServerError)
+		return
 	}
 
-	// 3. Enviar evento para SQS (assincronamente)
-	// Isso não bloqueia a resposta para o cliente.
-	go a.sendEvaluationEvent(userID, flagName, result)
+	resp := map[string]interface{}{
+		"user_id":   userID,
+		"flag_name": flagName,
+		"result":    result,
+	}
 
-	// 4. Retornar a resposta
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EvaluationResponse{
-		FlagName: flagName,
-		UserID:   userID,
-		Result:   result,
-	})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
