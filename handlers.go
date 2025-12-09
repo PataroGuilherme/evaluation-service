@@ -33,6 +33,10 @@ func (a *App) evaluationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+        if a.SqsSvc != nil && a.SqsQueueURL != "" {
+            go a.sendEvaluationEvent(userID, flagName, result)
+        }
+
 	resp := map[string]interface{}{
 		"user_id":   userID,
 		"flag_name": flagName,

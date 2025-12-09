@@ -39,7 +39,7 @@ func main() {
 		log.Fatal("REDIS_URL deve ser definida")
 	}
 
-	sqsURL := os.Getenv("SQS_QUEU_URL")
+	sqsURL := os.Getenv("SQS_QUEUE_URL")
 	awsRegion := os.Getenv("AWS_REGION")
 	awsKey := os.Getenv("AWS_ACCESS_KEY_ID")
 	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
